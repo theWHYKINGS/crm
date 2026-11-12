@@ -328,3 +328,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--g
 .people a { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr; gap: 10px; align-items: baseline; padding: 8px 0; text-decoration: none; }
 .people a:hover strong { color: var(--gold); }
 @media (max-width: 760px) { .people a { grid-template-columns: 1fr; gap: 0; } }
+
+/* ---------- Ansicht-Umschalter & Firmenkarten mit Kontakten ---------- */
+.seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg-btn { min-height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+.seg-btn[aria-pressed=true] { background: var(--gold); color: var(--gold-ink); }
+.mini-contacts li.mc { display: flex; align-items: center; gap: 6px; overflow: visible; white-space: nowrap; min-width: 0; }
+.mini-contacts li.mc > a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stage-tag { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; border-radius: 99px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; line-height: 1.6; }
+.icon-btn.tiny { width: 20px; height: 20px; border-radius: 5px; }

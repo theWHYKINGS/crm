@@ -276,6 +276,13 @@ function boardDialog(board, cardCount = 0) {
   modal(board ? 'Board bearbeiten' : 'Neues Board', body, actions);
 }
 
+function getBoardView(id) {
+  try { return localStorage.getItem('why-crm-view-' + id) === 'companies' ? 'companies' : 'contacts'; } catch { return 'contacts'; }
+}
+function setBoardView(id, v) {
+  try { localStorage.setItem('why-crm-view-' + id, v); } catch {}
+}
+
 async function viewBoard(id) {
   const d = await loadAll();
   const board = d.B[id];
@@ -283,14 +290,38 @@ async function viewBoard(id) {
   const stages = d.stages.filter((s) => s.board_id === id);
   const cards = d.cards.filter((c) => c.board_id === id && cardValid(d, c)).sort((a, b) => a.position - b.position);
   const co = isCompanyBoard(board);
+  const view = co ? 'contacts' : getBoardView(id);
+  const grouped = !co && view === 'companies';
+
+  // Firmen-Ansicht auf Kontakt-Boards: Kontakte nach Unternehmen zusammenfassen
+  const groups = [];
+  const loose = [];
+  if (grouped) {
+    const byCo = new Map();
+    for (const c of cards) {
+      const ct = d.C[c.contact_id];
+      if (ct?.company_id && d.F[ct.company_id]) {
+        if (!byCo.has(ct.company_id)) byCo.set(ct.company_id, []);
+        byCo.get(ct.company_id).push(c);
+      } else loose.push(c);
+    }
+    for (const [companyId, list] of byCo) {
+      const stageIdx = Math.max(...list.map((c) => stages.findIndex((x) => x.id === c.stage_id)));
+      groups.push({ company: d.F[companyId], cards: list, stageIdx, stageId: stages[stageIdx]?.id });
+    }
+    groups.sort((a, b) => a.company.name.localeCompare(b.company.name, 'de'));
+  }
 
   const column = (s, idx) => {
-    const list = cards.filter((c) => c.stage_id === s.id);
+    const list = grouped ? [] : cards.filter((c) => c.stage_id === s.id);
+    const gList = grouped ? groups.filter((g) => g.stageId === s.id) : [];
+    const lList = grouped ? loose.filter((c) => c.stage_id === s.id) : [];
+    const total = grouped ? gList.length + lList.length : list.length;
     const col = h('section', { class: 'column', 'data-stage': s.id },
-      h('header', { class: 'column-head' }, h('h2', {}, s.name), h('span', { class: 'count' }, list.length)),
+      h('header', { class: 'column-head' }, h('h2', {}, s.name), h('span', { class: 'count' }, total)),
       h('div', { class: 'column-body' },
-        list.map((c) => cardEl(d, c, board, stages, idx)),
-        list.length ? null : h('p', { class: 'drop-hint' }, 'Hierher ziehen'),
+        grouped ? [gList.map((g) => groupEl(d, g, board, stages)), lList.map((c) => cardEl(d, c, board, stages, idx))] : list.map((c) => cardEl(d, c, board, stages, idx)),
+        total ? null : h('p', { class: 'drop-hint' }, 'Hierher ziehen'),
       ),
       idx === 0 ? h('button', { class: 'add-card', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus', 16), co ? 'Unternehmen hinzufügen' : 'Kontakt hinzufügen') : null,
     );
@@ -299,7 +330,13 @@ async function viewBoard(id) {
     col.addEventListener('drop', async (e) => {
       e.preventDefault();
       col.classList.remove('drag-over');
-      const card = cards.find((c) => c.id === e.dataTransfer.getData('text/card'));
+      const dragId = e.dataTransfer.getData('text/card');
+      if (dragId.startsWith('group:')) {
+        const g = groups.find((x) => x.company.id === dragId.slice(6));
+        if (g) await moveGroup(g, s, board, stages);
+        return;
+      }
+      const card = cards.find((c) => c.id === dragId);
       if (card) await moveCard(card, s, board, stages);
     });
     return col;
@@ -309,6 +346,9 @@ async function viewBoard(id) {
     h('header', { class: 'page-head' },
       h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/boards' }, 'Boards'), co ? ' · Unternehmen' : null), h('h1', {}, board.name), board.goal ? h('p', { class: 'muted' }, board.goal) : null),
       h('div', { class: 'head-actions' },
+        co ? null : h('div', { class: 'seg', role: 'group', 'aria-label': 'Ansicht' },
+          [['contacts', 'Kontakte'], ['companies', 'Unternehmen']].map(([k, label]) =>
+            h('button', { class: 'seg-btn', type: 'button', 'aria-pressed': view === k ? 'true' : 'false', onclick: () => { setBoardView(id, k); refresh(); } }, label))),
         h('button', { class: 'btn', type: 'button', onclick: () => stagesDialog(board, stages, cards) }, 'Spalten'),
         h('button', { class: 'btn', type: 'button', onclick: () => boardDialog(board, cards.length) }, icon('edit', 16), 'Board'),
         h('button', { class: 'btn', type: 'button', onclick: () => bulkAddDialog(d, board, stages[0]) }, 'Mehrere hinzufügen'),
@@ -352,12 +392,70 @@ function cardEl(d, c, board, stages, idx) {
   return el;
 }
 
+async function moveCards(cards, stage, board, stages) {
+  const now = new Date().toISOString();
+  const events = [];
+  for (const card of cards) {
+    if (card.stage_id === stage.id) continue;
+    const from = stages.find((s) => s.id === card.stage_id);
+    await db.update('cards', card.id, { stage_id: stage.id, stage_entered_at: now, position: Date.now() });
+    events.push({ ...cardTarget(card), board_id: board.id, kind: 'stage', body: `${board.name}: ${from?.name || '–'} → ${stage.name}` });
+  }
+  if (events.length) await db.insert('events', events);
+}
+
 async function moveCard(card, stage, board, stages) {
   if (card.stage_id === stage.id) return;
-  const from = stages.find((s) => s.id === card.stage_id);
-  await db.update('cards', card.id, { stage_id: stage.id, stage_entered_at: new Date().toISOString(), position: Date.now() });
-  await db.insert('events', { ...cardTarget(card), board_id: board.id, kind: 'stage', body: `${board.name}: ${from?.name || '–'} → ${stage.name}` });
+  await moveCards([card], stage, board, stages);
   refresh();
+}
+
+// Firmenkarte (Firmen-Ansicht auf Kontakt-Boards): verschiebt alle Kontakte der Firma auf diesem Board
+async function moveGroup(g, stage, board, stages) {
+  const todo = g.cards.filter((c) => c.stage_id !== stage.id);
+  if (!todo.length) return;
+  if (new Set(g.cards.map((c) => c.stage_id)).size > 1) {
+    const ok = await confirmDialog('Alle Kontakte verschieben?',
+      `Die Kontakte von „${g.company.name}“ stehen in verschiedenen Spalten. Alle nach „${stage.name}“ verschieben?`, 'Verschieben');
+    if (!ok) return;
+  }
+  await moveCards(todo, stage, board, stages);
+  refresh();
+}
+
+function groupEl(d, g, board, stages) {
+  const next = stages[g.stageIdx + 1];
+  const withDue = g.cards.filter((c) => c.due_date).sort((a, b) => (a.due_date < b.due_date ? -1 : 1))[0];
+  const dl = withDue ? dueLabel(withDue.due_date) : null;
+  const shownCards = g.cards.map((c) => ({ c, ct: d.C[c.contact_id] }))
+    .sort((a, b) => stages.findIndex((x) => x.id === b.c.stage_id) - stages.findIndex((x) => x.id === a.c.stage_id));
+  const el = h('article', { class: 'card company-card group-card', draggable: 'true' },
+    h('a', { class: 'card-link', href: '#/company/' + g.company.id },
+      h('div', { class: 'card-name' }, g.company.name),
+      (g.company.city || g.company.industry) ? h('div', { class: 'card-company' }, [g.company.city, g.company.industry].filter(Boolean).join(' · ')) : null,
+      withDue?.next_step ? h('div', { class: 'card-next' }, withDue.next_step) : null,
+    ),
+    h('ul', { class: 'mini-contacts', 'aria-label': 'Kontakte auf diesem Board' },
+      shownCards.slice(0, 6).map(({ c, ct }) => {
+        const st = stages.findIndex((x) => x.id === c.stage_id);
+        const nx = stages[st + 1];
+        return h('li', { class: 'mc' },
+          h('a', { href: '#/contact/' + ct.id, draggable: 'false' }, fullName(ct), ct.job_title ? h('span', { class: 'muted' }, ' · ' + ct.job_title) : null),
+          h('span', { class: 'stage-tag', title: 'Spalte dieses Kontakts' }, stages[st]?.name),
+          nx ? h('button', { class: 'icon-btn tiny', type: 'button', title: 'Nur diesen Kontakt nach „' + nx.name + '“', 'aria-label': 'Kontakt weiter nach ' + nx.name, onclick: () => moveCard(c, nx, board, stages) }, icon('next', 12)) : null);
+      }),
+      shownCards.length > 6 ? h('li', { class: 'muted more' }, '+ ' + (shownCards.length - 6) + ' weitere') : null),
+    h('div', { class: 'card-foot' },
+      dl ? h('span', { class: 'due ' + dl.cls }, dl.text) : h('span', { class: 'muted small' }, plural(g.cards.length, 'Kontakt', 'Kontakte')),
+      next ? h('button', {
+        class: 'icon-btn', type: 'button', title: 'Alle Kontakte weiter nach „' + next.name + '“', 'aria-label': 'Alle Kontakte weiter nach ' + next.name,
+        onclick: () => moveGroup(g, next, board, stages),
+      }, icon('next', 16)) : null,
+    ),
+  );
+  el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/card', 'group:' + g.company.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
+  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  return el;
 }
 
 function stagesDialog(board, stages, cards) {
