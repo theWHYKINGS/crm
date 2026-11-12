@@ -784,7 +784,20 @@ function researchDialog(d, c) {
       contactTab = 'research';
       refresh();
       toast('Recherche läuft, das dauert etwa eine Minute.');
+      const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
       db.invoke('research', { research_id: r.id })
+        .then(async () => {
+          for (let i = 0; i < 90; i++) {
+            await sleep(i === 0 ? 1500 : 4000);
+            const row = await db.get('research', r.id);
+            if (row && row.status !== 'running') {
+              if (row.status === 'error') toast('Recherche fehlgeschlagen: ' + (row.error || 'unbekannt'), 'error');
+              else toast('Recherche fertig.');
+              return;
+            }
+          }
+          throw new Error('Zeitüberschreitung (mehr als 6 Minuten)');
+        })
         .catch(async (e) => {
           await db.update('research', r.id, { status: 'error', error: e.message }).catch(() => {});
           toast('Recherche fehlgeschlagen: ' + e.message, 'error');
