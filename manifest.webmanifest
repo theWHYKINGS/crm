@@ -3,7 +3,7 @@
   "short_name": "WHY CRM",
   "start_url": "./#/today",
   "display": "standalone",
-  "background_color": "#14120f",
-  "theme_color": "#14120f",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [{ "src": "img/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }]
 }

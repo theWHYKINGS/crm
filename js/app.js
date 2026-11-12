@@ -63,7 +63,7 @@ function shell(active, content) {
   const nav = [['today', 'Heute'], ['boards', 'Boards'], ['companies', 'Unternehmen'], ['contacts', 'Kontakte']];
   return h('div', { class: 'shell' },
     h('nav', { class: 'nav', 'aria-label': 'Hauptnavigation' },
-      h('a', { class: 'brand', href: '#/today' }, 'the', h('b', {}, 'WHY'), 'KINGS', h('span', {}, 'CRM')),
+      brandEl(),
       nav.map(([k, label]) =>
         h('a', { class: 'nav-item' + (active === k ? ' active' : ''), href: '#/' + k, 'aria-current': active === k ? 'page' : null },
           icon(k, 20), h('span', {}, label)),
@@ -74,8 +74,14 @@ function shell(active, content) {
           : h('button', { class: 'link', type: 'button', onclick: async () => { await db.signOut(); refresh(); } }, 'Abmelden'),
       ),
     ),
-    h('main', { class: 'main' }, content),
+    h('main', { class: 'main' }, h('header', { class: 'topbar' }, brandEl()), content),
   );
+}
+
+function brandEl(big = false) {
+  return h(big ? 'div' : 'a', { class: 'brand' + (big ? ' big' : ''), href: big ? null : '#/today', 'aria-label': 'theWHYKINGS CRM' },
+    h('img', { class: 'brand-logo', src: 'img/helm-gold.png', alt: '', width: 116, height: 54 }),
+    h('span', { class: 'brand-text' }, 'THE WHYKINGS', h('small', {}, 'CRM')));
 }
 
 // ---------- Login ----------
@@ -97,7 +103,7 @@ function viewLogin() {
       }
     },
   },
-    h('div', { class: 'brand big' }, 'the', h('b', {}, 'WHY'), 'KINGS', h('span', {}, 'CRM')),
+    brandEl(true),
     field('E-Mail', email), field('Passwort', pw), err,
     h('button', { class: 'btn primary wide', type: 'submit' }, 'Anmelden'),
   );
@@ -155,7 +161,7 @@ async function viewToday() {
     );
   };
   const section = (title, items, emptyText, render = (c) => row(c)) =>
-    h('section', { class: 'panel' },
+    h('section', { class: 'panel' + (items.length ? '' : ' panel-empty') },
       h('h2', { class: 'panel-title' }, title, h('span', { class: 'count' }, items.length)),
       items.length ? h('div', { class: 'tasks' }, items.map(render)) : h('p', { class: 'empty' }, emptyText),
     );
@@ -163,7 +169,11 @@ async function viewToday() {
   const greeting = new Date().getHours() < 11 ? 'Guten Morgen' : new Date().getHours() < 18 ? 'Hallo' : 'Guten Abend';
   return h('div', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('p', { class: 'eyebrow' }, new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())), h('h1', {}, greeting + ', Dominik')),
+      h('div', {}, h('p', { class: 'eyebrow' }, new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())), h('h1', {}, greeting + ', Dominik'),
+        h('p', { class: 'today-summary' },
+          due.length ? h('span', { class: 'due overdue' }, due.length + ' fällig') : h('span', { class: 'due later' }, 'nichts fällig'),
+          week.length ? h('span', { class: 'due soon' }, week.length + ' in 7 Tagen') : null,
+          stuck.length ? h('span', { class: 'due today' }, stuck.length + ' hängen fest') : null)),
     ),
     h('div', { class: 'stats' },
       d.boards.map((b) => {
