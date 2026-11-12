@@ -13,6 +13,18 @@ export const TEMPLATES = [
     goal: 'Neue Mandanten fürs Sparring über Leadership-Briefe',
     stages: ['Leadership-Brief 1', 'Leadership-Brief 2', 'Leadership-Brief 3', 'Kennenlernen', 'Mandat'],
   },
+  {
+    name: 'Steuerkanzleien',
+    goal: 'Kanzleien als Ganzes ansprechen, Ansprechpartner kleiner darunter',
+    kind: 'company',
+    stages: ['Identifiziert', 'Recherchiert', 'Angesprochen', 'Im Gespräch', 'Kunde'],
+  },
+  {
+    name: 'Unternehmenskunden',
+    goal: 'Bestehende Kunden und Zielunternehmen im Blick behalten',
+    kind: 'company',
+    stages: ['Zielunternehmen', 'Erstkontakt', 'Gespräch', 'Angebot', 'Kunde'],
+  },
 ];
 
 export const db = mode === 'supabase' ? await makeSupabase() : await makeLocal();
@@ -85,8 +97,10 @@ async function makeLocal() {
     boards: [['stages', 'board_id'], ['cards', 'board_id']],
     stages: [['cards', 'stage_id']],
     contacts: [['cards', 'contact_id'], ['events', 'contact_id'], ['transcripts', 'contact_id'], ['research', 'contact_id']],
+    companies: [['cards', 'company_id'], ['events', 'company_id']],
   };
   const DEFAULTS = {
+    boards: () => ({ kind: 'contact' }),
     cards: () => ({ stage_entered_at: new Date().toISOString(), position: Date.now() }),
     research: () => ({ status: 'running', sources: [], questions: {} }),
   };
@@ -116,7 +130,7 @@ async function makeLocal() {
       const rows = (Array.isArray(row) ? row : [row]).map((r) => stamp(table, r));
       if (table === 'cards') {
         for (const r of rows) {
-          if (T('cards').some((c) => c.board_id === r.board_id && c.contact_id === r.contact_id)) {
+          if (T('cards').some((c) => c.board_id === r.board_id && (c.contact_id || c.company_id) === (r.contact_id || r.company_id))) {
             throw new Error('Kontakt ist bereits auf diesem Board.');
           }
         }

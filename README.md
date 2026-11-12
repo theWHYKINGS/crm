@@ -27,3 +27,9 @@ Dann http://127.0.0.1:8765 öffnen.
 3. Authentication → Users → eigenen Nutzer anlegen; unter Sign In / Providers
    „Allow new users to sign up“ ausschalten
 4. Project Settings → API: Project URL + anon key in `js/config.js` eintragen
+
+## Datenbank-Änderungen
+
+Später hinzugekommene Änderungen liegen in `supabase/migrations/`. Jede Datei einmal im SQL-Editor ausführen:
+
+- `002_company_boards.sql`: Unternehmens-Boards (Karten können Unternehmen statt Kontakte sein)

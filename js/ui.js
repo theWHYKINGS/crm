@@ -22,6 +22,7 @@ export function h(tag, attrs, ...children) {
 const ICONS = {
   today: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   boards: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/>',
+  companies: '<path d="M4 20V6l8-3 8 3v14"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1M10 20v-4h4v4"/>',
   contacts: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.9.7 3.1 2.4 3.5 5.2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   next: '<path d="M9 6l6 6-6 6"/>',

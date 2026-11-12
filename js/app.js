@@ -40,12 +40,14 @@ async function route() {
     else if (view === 'board') content = await viewBoard(id);
     else if (view === 'contacts') content = await viewContacts();
     else if (view === 'contact') content = await viewContact(id);
+    else if (view === 'companies') content = await viewCompanies();
+    else if (view === 'company') content = await viewCompany(id);
     else content = await viewToday();
   } catch (e) {
     console.error(e);
     content = h('div', { class: 'empty error' }, 'Da ist etwas schiefgelaufen: ', e.message);
   }
-  const active = view === 'board' ? 'boards' : view === 'contact' ? 'contacts' : view || 'today';
+  const active = view === 'board' ? 'boards' : view === 'contact' ? 'contacts' : view === 'company' ? 'companies' : view || 'today';
   root.replaceChildren(shell(active, content));
   if (scroll) {
     window.scrollTo(0, scroll.y);
@@ -58,7 +60,7 @@ window.addEventListener('hashchange', route);
 route();
 
 function shell(active, content) {
-  const nav = [['today', 'Heute'], ['boards', 'Boards'], ['contacts', 'Kontakte']];
+  const nav = [['today', 'Heute'], ['boards', 'Boards'], ['companies', 'Unternehmen'], ['contacts', 'Kontakte']];
   return h('div', { class: 'shell' },
     h('nav', { class: 'nav', 'aria-label': 'Hauptnavigation' },
       h('a', { class: 'brand', href: '#/today' }, 'the', h('b', {}, 'WHY'), 'KINGS', h('span', {}, 'CRM')),
@@ -116,13 +118,18 @@ async function loadAll() {
 }
 
 const companyName = (d, contact) => d.F[contact?.company_id]?.name || '';
+const isCompanyBoard = (b) => b?.kind === 'company';
+const cardValid = (d, c) => (c.company_id ? d.F[c.company_id] : d.C[c.contact_id]) && d.S[c.stage_id];
+const cardTarget = (c) => (c.company_id ? { company_id: c.company_id } : { contact_id: c.contact_id });
+const contactsOf = (d, companyId) => d.contacts.filter((x) => x.company_id === companyId);
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
 // ---------- Heute ----------
 
 async function viewToday() {
   const d = await loadAll();
   const today = todayISO();
-  const live = d.cards.filter((c) => d.C[c.contact_id] && d.S[c.stage_id]);
+  const live = d.cards.filter((c) => cardValid(d, c));
   const due = live.filter((c) => c.due_date && c.due_date <= today).sort((a, b) => (a.due_date < b.due_date ? -1 : 1));
   const week = live.filter((c) => c.due_date && c.due_date > today && c.due_date <= addDays(today, 7)).sort((a, b) => (a.due_date < b.due_date ? -1 : 1));
   const stuck = live
@@ -132,10 +139,13 @@ async function viewToday() {
 
   const row = (c, extra) => {
     const contact = d.C[c.contact_id];
+    const co = c.company_id ? d.F[c.company_id] : null;
     const dl = dueLabel(c.due_date);
-    return h('a', { class: 'task', href: '#/contact/' + contact.id },
+    return h('a', { class: 'task', href: co ? '#/company/' + co.id : '#/contact/' + contact.id },
       h('div', { class: 'task-main' },
-        h('div', { class: 'task-name' }, fullName(contact), companyName(d, contact) ? h('span', { class: 'muted' }, ' · ' + companyName(d, contact)) : null),
+        co
+          ? h('div', { class: 'task-name' }, co.name, h('span', { class: 'muted' }, ' · Unternehmen'))
+          : h('div', { class: 'task-name' }, fullName(contact), companyName(d, contact) ? h('span', { class: 'muted' }, ' · ' + companyName(d, contact)) : null),
         h('div', { class: 'task-sub' }, c.next_step || h('span', { class: 'muted' }, 'Kein nächster Schritt notiert')),
       ),
       h('div', { class: 'task-meta' },
@@ -176,9 +186,9 @@ async function viewToday() {
           h('h2', { class: 'panel-title' }, 'Zuletzt passiert'),
           events.length
             ? h('ul', { class: 'feed' }, events.map((e) => {
-              const contact = d.C[e.contact_id];
+              const co = e.company_id ? d.F[e.company_id] : null;
               return h('li', {},
-                h('a', { href: '#/contact/' + e.contact_id }, fullName(contact)),
+                co ? h('a', { href: '#/company/' + co.id }, co.name) : h('a', { href: '#/contact/' + e.contact_id }, fullName(d.C[e.contact_id])),
                 h('span', { class: 'muted' }, ' · ' + (EVENT_KINDS[e.kind] || e.kind) + ' · ' + fmtDateTime(e.created_at)),
                 e.body ? h('div', { class: 'feed-body' }, e.body) : null);
             }))
@@ -203,30 +213,34 @@ async function viewBoards() {
         const stages = d.stages.filter((s) => s.board_id === b.id);
         const cards = d.cards.filter((c) => c.board_id === b.id);
         return h('a', { class: 'board-tile', href: '#/board/' + b.id },
-          h('h2', {}, b.name),
+          h('h2', {}, b.name, isCompanyBoard(b) ? h('span', { class: 'kind-chip' }, 'Unternehmen') : null),
           b.goal ? h('p', { class: 'muted' }, b.goal) : null,
           h('div', { class: 'mini-pipe' }, stages.map((s) => {
             const n = cards.filter((c) => c.stage_id === s.id).length;
             return h('div', { class: 'mini-stage', title: s.name }, h('span', { class: 'mini-num' }, n), h('span', { class: 'mini-name' }, s.name));
           })),
-          h('p', { class: 'tile-foot' }, cards.length + (cards.length === 1 ? ' Kontakt' : ' Kontakte')),
+          h('p', { class: 'tile-foot' }, isCompanyBoard(b) ? plural(cards.length, 'Unternehmen', 'Unternehmen') : plural(cards.length, 'Kontakt', 'Kontakte')),
         );
       }))
       : h('div', { class: 'empty big' }, h('p', {}, 'Noch kein Board. Leg dein erstes an.')),
   );
 }
 
-function boardDialog(board, stages) {
+function boardDialog(board, cardCount = 0) {
   const name = h('input', { value: board?.name || '', placeholder: 'z. B. Steuerberater-Training' });
   const goal = h('input', { value: board?.goal || '', placeholder: 'Wofür ist das Board?' });
   const stageTxt = h('textarea', { rows: 6, placeholder: 'Eine Spalte pro Zeile' });
-  const body = h('div', { class: 'form' }, field('Name', name), field('Ziel', goal));
+  const kind = h('select', { 'aria-label': 'Art des Boards', disabled: !!board && cardCount > 0 },
+    h('option', { value: 'contact', selected: board?.kind !== 'company' }, 'Kontakte (Personen)'),
+    h('option', { value: 'company', selected: board?.kind === 'company' }, 'Unternehmen (Kontakte erscheinen klein darunter)'));
+  const body = h('div', { class: 'form' }, field('Name', name), field('Ziel', goal),
+    field('Karten sind …', kind, board && cardCount > 0 ? 'Die Art lässt sich nur ändern, solange das Board leer ist.' : null));
   if (!board) {
     body.append(
       h('div', { class: 'templates' }, h('span', { class: 'muted' }, 'Vorlage: '),
         TEMPLATES.map((t) => h('button', {
           class: 'chip-btn', type: 'button',
-          onclick: () => { name.value = t.name; goal.value = t.goal; stageTxt.value = t.stages.join('\n'); },
+          onclick: () => { name.value = t.name; goal.value = t.goal; kind.value = t.kind || 'contact'; stageTxt.value = t.stages.join('\n'); },
         }, t.name))),
       field('Spalten (Touchpoints / Status)', stageTxt, 'Eine pro Zeile. Lässt sich später jederzeit ändern.'),
     );
@@ -236,12 +250,14 @@ function boardDialog(board, stages) {
     onClick: async () => {
       if (!name.value.trim()) { toast('Bitte einen Namen eingeben.', 'error'); return false; }
       if (board) {
-        await db.update('boards', board.id, { name: name.value.trim(), goal: goal.value.trim() || null });
+        const patch = { name: name.value.trim(), goal: goal.value.trim() || null };
+        if (!kind.disabled) patch.kind = kind.value;
+        await db.update('boards', board.id, patch);
         refresh();
         return;
       }
       const lines = stageTxt.value.split('\n').map((s) => s.trim()).filter(Boolean);
-      const b = await db.insert('boards', { name: name.value.trim(), goal: goal.value.trim() || null, position: Date.now() });
+      const b = await db.insert('boards', { name: name.value.trim(), goal: goal.value.trim() || null, kind: kind.value, position: Date.now() });
       await db.insert('stages', (lines.length ? lines : ['Neu', 'In Arbeit', 'Erledigt']).map((n, i) => ({ board_id: b.id, name: n, position: i })));
       location.hash = '#/board/' + b.id;
     },
@@ -250,7 +266,7 @@ function boardDialog(board, stages) {
     actions.unshift({
       label: 'Board löschen', danger: true,
       onClick: async () => {
-        const ok = await confirmDialog('Board löschen?', `„${board.name}“ mit allen Spalten wird gelöscht. Die Kontakte selbst bleiben erhalten.`);
+        const ok = await confirmDialog('Board löschen?', `„${board.name}“ mit allen Spalten wird gelöscht. Kontakte und Unternehmen selbst bleiben erhalten.`);
         if (!ok) return false;
         await db.remove('boards', board.id);
         location.hash = '#/boards';
@@ -265,7 +281,8 @@ async function viewBoard(id) {
   const board = d.B[id];
   if (!board) return h('div', { class: 'empty' }, 'Board nicht gefunden. ', h('a', { href: '#/boards' }, 'Zu den Boards'));
   const stages = d.stages.filter((s) => s.board_id === id);
-  const cards = d.cards.filter((c) => c.board_id === id && d.C[c.contact_id]).sort((a, b) => a.position - b.position);
+  const cards = d.cards.filter((c) => c.board_id === id && cardValid(d, c)).sort((a, b) => a.position - b.position);
+  const co = isCompanyBoard(board);
 
   const column = (s, idx) => {
     const list = cards.filter((c) => c.stage_id === s.id);
@@ -275,7 +292,7 @@ async function viewBoard(id) {
         list.map((c) => cardEl(d, c, board, stages, idx)),
         list.length ? null : h('p', { class: 'drop-hint' }, 'Hierher ziehen'),
       ),
-      idx === 0 ? h('button', { class: 'add-card', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus', 16), 'Kontakt hinzufügen') : null,
+      idx === 0 ? h('button', { class: 'add-card', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus', 16), co ? 'Unternehmen hinzufügen' : 'Kontakt hinzufügen') : null,
     );
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drag-over'); });
     col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
@@ -290,12 +307,12 @@ async function viewBoard(id) {
 
   return h('div', { class: 'page wide' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/boards' }, 'Boards')), h('h1', {}, board.name), board.goal ? h('p', { class: 'muted' }, board.goal) : null),
+      h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/boards' }, 'Boards'), co ? ' · Unternehmen' : null), h('h1', {}, board.name), board.goal ? h('p', { class: 'muted' }, board.goal) : null),
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => stagesDialog(board, stages, cards) }, 'Spalten'),
-        h('button', { class: 'btn', type: 'button', onclick: () => boardDialog(board) }, icon('edit', 16), 'Board'),
+        h('button', { class: 'btn', type: 'button', onclick: () => boardDialog(board, cards.length) }, icon('edit', 16), 'Board'),
         h('button', { class: 'btn', type: 'button', onclick: () => bulkAddDialog(d, board, stages[0]) }, 'Mehrere hinzufügen'),
-        h('button', { class: 'btn primary', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus'), 'Kontakt'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus'), co ? 'Unternehmen' : 'Kontakt'),
       ),
     ),
     stages.length ? h('div', { class: 'kanban' }, stages.map(column)) : h('p', { class: 'empty' }, 'Dieses Board hat noch keine Spalten.'),
@@ -303,16 +320,25 @@ async function viewBoard(id) {
 }
 
 function cardEl(d, c, board, stages, idx) {
-  const contact = d.C[c.contact_id];
+  const company = c.company_id ? d.F[c.company_id] : null;
+  const contact = company ? null : d.C[c.contact_id];
   const dl = dueLabel(c.due_date);
   const days = daysSince(c.stage_entered_at);
   const next = stages[idx + 1];
-  const el = h('article', { class: 'card', draggable: 'true' },
-    h('a', { class: 'card-link', href: '#/contact/' + contact.id },
-      h('div', { class: 'card-name' }, fullName(contact)),
-      companyName(d, contact) ? h('div', { class: 'card-company' }, companyName(d, contact)) : null,
+  const people = company ? contactsOf(d, company.id) : [];
+  const el = h('article', { class: 'card' + (company ? ' company-card' : ''), draggable: 'true' },
+    h('a', { class: 'card-link', href: company ? '#/company/' + company.id : '#/contact/' + contact.id },
+      h('div', { class: 'card-name' }, company ? company.name : fullName(contact)),
+      company
+        ? ((company.city || company.industry) ? h('div', { class: 'card-company' }, [company.city, company.industry].filter(Boolean).join(' · ')) : null)
+        : (companyName(d, contact) ? h('div', { class: 'card-company' }, companyName(d, contact)) : null),
       c.next_step ? h('div', { class: 'card-next' }, c.next_step) : null,
     ),
+    company && people.length
+      ? h('ul', { class: 'mini-contacts', 'aria-label': 'Kontakte' },
+        people.slice(0, 4).map((p) => h('li', {}, h('a', { href: '#/contact/' + p.id, draggable: 'false' }, fullName(p), p.job_title ? h('span', { class: 'muted' }, ' · ' + p.job_title) : null))),
+        people.length > 4 ? h('li', { class: 'muted more' }, '+ ' + (people.length - 4) + ' weitere') : null)
+      : null,
     h('div', { class: 'card-foot' },
       dl ? h('span', { class: 'due ' + dl.cls }, dl.text) : h('span', { class: 'muted small' }, days ? days + ' T. in Spalte' : 'neu'),
       next ? h('button', {
@@ -330,7 +356,7 @@ async function moveCard(card, stage, board, stages) {
   if (card.stage_id === stage.id) return;
   const from = stages.find((s) => s.id === card.stage_id);
   await db.update('cards', card.id, { stage_id: stage.id, stage_entered_at: new Date().toISOString(), position: Date.now() });
-  await db.insert('events', { contact_id: card.contact_id, board_id: board.id, kind: 'stage', body: `${board.name}: ${from?.name || '–'} → ${stage.name}` });
+  await db.insert('events', { ...cardTarget(card), board_id: board.id, kind: 'stage', body: `${board.name}: ${from?.name || '–'} → ${stage.name}` });
   refresh();
 }
 
@@ -377,26 +403,29 @@ function stagesDialog(board, stages, cards) {
 
 function addToBoardDialog(d, board, stage) {
   if (!stage) { toast('Das Board braucht zuerst eine Spalte.', 'error'); return; }
-  const onBoard = new Set(d.cards.filter((c) => c.board_id === board.id).map((c) => c.contact_id));
-  const q = h('input', { type: 'search', placeholder: 'Name, Firma oder E-Mail suchen …' });
+  const co = isCompanyBoard(board);
+  const key = co ? 'company_id' : 'contact_id';
+  const onBoard = new Set(d.cards.filter((c) => c.board_id === board.id).map((c) => c[key]));
+  const q = h('input', { type: 'search', placeholder: co ? 'Unternehmen, Ort oder Branche suchen …' : 'Name, Firma oder E-Mail suchen …' });
   const results = h('div', { class: 'pick-list' });
   let dlg;
-  const add = async (contactId) => {
-    await db.insert('cards', { board_id: board.id, stage_id: stage.id, contact_id: contactId, position: Date.now(), stage_entered_at: new Date().toISOString() });
-    await db.insert('events', { contact_id: contactId, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${stage.name}“` });
+  const add = async (id) => {
+    await db.insert('cards', { board_id: board.id, stage_id: stage.id, [key]: id, position: Date.now(), stage_entered_at: new Date().toISOString() });
+    await db.insert('events', { [key]: id, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${stage.name}“` });
     dlg.close();
     refresh();
   };
   const draw = () => {
     const term = q.value.trim().toLowerCase();
-    const matches = d.contacts
-      .filter((c) => !onBoard.has(c.id))
-      .filter((c) => !term || [fullName(c), c.email, companyName(d, c)].join(' ').toLowerCase().includes(term))
-      .slice(0, 30);
+    const matches = (co
+      ? d.companies.filter((c) => !onBoard.has(c.id)).filter((c) => !term || [c.name, c.city, c.industry, c.domain].join(' ').toLowerCase().includes(term))
+      : d.contacts.filter((c) => !onBoard.has(c.id)).filter((c) => !term || [fullName(c), c.email, companyName(d, c)].join(' ').toLowerCase().includes(term))
+    ).slice(0, 30);
     results.replaceChildren(
       ...matches.map((c) => h('button', { class: 'pick', type: 'button', onclick: () => add(c.id) },
-        h('span', {}, fullName(c)), h('span', { class: 'muted' }, companyName(d, c)))),
-      matches.length ? '' : h('p', { class: 'empty' }, 'Kein passender Kontakt.'),
+        h('span', {}, co ? c.name : fullName(c)),
+        h('span', { class: 'muted' }, co ? plural(contactsOf(d, c.id).length, 'Kontakt', 'Kontakte') : companyName(d, c)))),
+      matches.length ? '' : h('p', { class: 'empty' }, co ? 'Kein passendes Unternehmen.' : 'Kein passender Kontakt.'),
     );
   };
   q.addEventListener('input', draw);
@@ -405,10 +434,14 @@ function addToBoardDialog(d, board, stage) {
     q, results,
     h('button', {
       class: 'btn wide', type: 'button',
-      onclick: () => { dlg.close(); contactDialog(d, null, async (c) => add(c.id).catch((e) => toast(e.message, 'error'))); },
-    }, icon('plus', 16), 'Neuen Kontakt anlegen'),
+      onclick: () => {
+        dlg.close();
+        if (co) companyDialog(d, null, async (c) => add(c.id).catch((e) => toast(e.message, 'error')));
+        else contactDialog(d, null, async (c) => add(c.id).catch((e) => toast(e.message, 'error')));
+      },
+    }, icon('plus', 16), co ? 'Neues Unternehmen anlegen' : 'Neuen Kontakt anlegen'),
   );
-  dlg = modal('Kontakt zu „' + board.name + '“ hinzufügen', body, []);
+  dlg = modal((co ? 'Unternehmen' : 'Kontakt') + ' zu „' + board.name + '“ hinzufügen', body, []);
 }
 
 // ---------- Kontakte ----------
@@ -457,7 +490,7 @@ async function resolveCompany(d, name) {
   return c.id;
 }
 
-function contactDialog(d, contact, onSaved) {
+function contactDialog(d, contact, onSaved, preset) {
   const v = (k) => contact?.[k] || '';
   const inp = (k, attrs = {}) => h('input', { value: v(k), ...attrs });
   const f = {
@@ -470,8 +503,8 @@ function contactDialog(d, contact, onSaved) {
     city: inp('city'),
   };
   const dl = h('datalist', { id: 'company-list' }, d.companies.map((c) => h('option', { value: c.name })));
-  const company = h('input', { value: d.F[contact?.company_id]?.name || '', list: 'company-list', placeholder: 'Firma oder Kanzlei' });
-  const website = h('input', { type: 'url', value: d.F[contact?.company_id]?.website || '', placeholder: 'https://…' });
+  const company = h('input', { value: d.F[contact?.company_id]?.name || preset?.company || '', list: 'company-list', placeholder: 'Firma oder Kanzlei' });
+  const website = h('input', { type: 'url', value: d.F[contact?.company_id]?.website || d.F[d.companies.find((x) => x.name === preset?.company)?.id]?.website || '', placeholder: 'https://…' });
   const notes = h('textarea', { rows: 3, value: v('notes') });
   const body = h('div', { class: 'form grid2' },
     field('Vorname', f.first_name), field('Nachname', f.last_name),
@@ -532,7 +565,7 @@ async function viewContact(id) {
   const profile = h('section', { class: 'panel' },
     h('div', { class: 'panel-title row-between' }, h('h2', {}, 'Profil'), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Bearbeiten', onclick: () => contactDialog(d, c) }, icon('edit', 16))),
     h('dl', { class: 'infos' },
-      info('Firma', company?.name), info('Position', c.job_title), info('Ort', c.city || company?.city),
+      info('Firma', company?.name, company ? '#/company/' + company.id : null), info('Position', c.job_title), info('Ort', c.city || company?.city),
       info('E-Mail', c.email, c.email ? 'mailto:' + c.email : null), info('Telefon', c.phone, c.phone ? 'tel:' + c.phone.replace(/\s/g, '') : null),
       info('LinkedIn', safeUrl(c.linkedin_url) ? 'Profil öffnen' : null, safeUrl(c.linkedin_url)),
       info('Website', safeUrl(company?.website) ? company.website.replace(/^https?:\/\//, '') : null, safeUrl(company?.website)),
@@ -543,11 +576,11 @@ async function viewContact(id) {
   const boardsPanel = h('section', { class: 'panel' },
     h('h2', { class: 'panel-title' }, 'Boards'),
     memberships.map((m) => membershipEl(d, m)),
-    addMembershipEl(d, c, memberships),
+    addMembershipEl(d, { contact_id: c.id }, memberships),
   );
 
   const tabs = [
-    ['timeline', 'Verlauf', events.length, () => timelineEl(c, events)],
+    ['timeline', 'Verlauf', events.length, () => timelineEl({ contact_id: c.id }, events)],
     ['transcripts', 'Transkripte', transcripts.length, () => transcriptsEl(c, transcripts)],
     ['research', 'Recherche', research.length, () => researchEl(d, c, research)],
   ];
@@ -609,9 +642,9 @@ function membershipEl(d, m) {
       h('button', {
         class: 'icon-btn', type: 'button', 'aria-label': 'Vom Board entfernen', title: 'Vom Board entfernen',
         onclick: async () => {
-          if (!(await confirmDialog('Vom Board entfernen?', `Der Kontakt wird von „${board.name}“ entfernt. Verlauf und Daten bleiben.`, 'Entfernen'))) return;
+          if (!(await confirmDialog('Vom Board entfernen?', `${m.company_id ? 'Das Unternehmen' : 'Der Kontakt'} wird von „${board.name}“ entfernt. Verlauf und Daten bleiben.`, 'Entfernen'))) return;
           await db.remove('cards', m.id);
-          await db.insert('events', { contact_id: m.contact_id, board_id: null, kind: 'stage', body: `Von „${board.name}“ entfernt` });
+          await db.insert('events', { ...cardTarget(m), board_id: null, kind: 'stage', body: `Von „${board.name}“ entfernt` });
           refresh();
         },
       }, icon('trash', 16)),
@@ -622,22 +655,23 @@ function membershipEl(d, m) {
   );
 }
 
-function addMembershipEl(d, c, memberships) {
-  const free = d.boards.filter((b) => !memberships.some((m) => m.board_id === b.id));
+function addMembershipEl(d, owner, memberships) {
+  const wantCo = !!owner.company_id;
+  const free = d.boards.filter((b) => isCompanyBoard(b) === wantCo && !memberships.some((m) => m.board_id === b.id));
   if (!free.length) return null;
   const sel = h('select', { 'aria-label': 'Board wählen' }, h('option', { value: '' }, 'Zu Board hinzufügen …'), free.map((b) => h('option', { value: b.id }, b.name)));
   sel.addEventListener('change', async () => {
     const board = d.B[sel.value];
     const first = d.stages.find((s) => s.board_id === board?.id);
     if (!board || !first) return;
-    await db.insert('cards', { board_id: board.id, stage_id: first.id, contact_id: c.id, position: Date.now(), stage_entered_at: new Date().toISOString() });
-    await db.insert('events', { contact_id: c.id, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${first.name}“` });
+    await db.insert('cards', { board_id: board.id, stage_id: first.id, ...owner, position: Date.now(), stage_entered_at: new Date().toISOString() });
+    await db.insert('events', { ...owner, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${first.name}“` });
     refresh();
   });
   return h('div', { class: 'add-mem' }, sel);
 }
 
-function timelineEl(c, events) {
+function timelineEl(owner, events) {
   const kind = h('select', { 'aria-label': 'Art' }, ['note', 'call', 'email', 'meeting', 'touchpoint'].map((k) => h('option', { value: k }, EVENT_KINDS[k])));
   const text = h('textarea', { rows: 3, placeholder: 'Was ist passiert?' });
   const form = h('form', {
@@ -645,7 +679,7 @@ function timelineEl(c, events) {
     onsubmit: async (e) => {
       e.preventDefault();
       if (!text.value.trim()) return;
-      await db.insert('events', { contact_id: c.id, kind: kind.value, body: text.value.trim() });
+      await db.insert('events', { ...owner, kind: kind.value, body: text.value.trim() });
       refresh();
     },
   }, text, h('div', { class: 'inline' }, kind, h('button', { class: 'btn primary', type: 'submit' }, 'Eintragen')));
@@ -833,27 +867,37 @@ function hubspotImportDialog() {
   }]);
 }
 
-// ---------- Mehrere Kontakte auf einmal aufs Board ----------
+// ---------- Mehrere Kontakte/Unternehmen auf einmal aufs Board ----------
 
 function bulkAddDialog(d, board, stage) {
   if (!stage) { toast('Das Board braucht zuerst eine Spalte.', 'error'); return; }
-  const onBoard = new Set(d.cards.filter((c) => c.board_id === board.id).map((c) => c.contact_id));
+  const co = isCompanyBoard(board);
+  const key = co ? 'company_id' : 'contact_id';
+  const onBoard = new Set(d.cards.filter((c) => c.board_id === board.id).map((c) => c[key]));
   const q = h('input', { type: 'search', placeholder: 'z. B. Steuerberater  (mehrere Wörter = alle müssen vorkommen)', 'aria-label': 'Filter' });
   const where = h('select', { 'aria-label': 'Suchen in' },
-    h('option', { value: 'all' }, 'in allem (Name, Position, Firma, Ort, E-Mail)'),
-    h('option', { value: 'job' }, 'nur in der Position'),
+    h('option', { value: 'all' }, co ? 'in allem (Firma, Ort, Branche, Kontakte)' : 'in allem (Name, Position, Firma, Ort, E-Mail)'),
+    h('option', { value: 'job' }, co ? 'nur in den Positionen der Kontakte' : 'nur in der Position'),
     h('option', { value: 'company' }, 'nur im Firmennamen'));
   const list = h('div', { class: 'pick-list bulk' });
   const info = h('p', { class: 'muted small' });
   let shown = [];
   const checks = new Map();
 
-  const haystack = (c) => {
-    const job = (c.job_title || '').toLowerCase();
-    const comp = companyName(d, c).toLowerCase();
+  const haystack = (x) => {
+    if (co) {
+      const people = contactsOf(d, x.id);
+      const jobs = people.map((p) => p.job_title || '').join(' ');
+      const names = people.map(fullName).join(' ');
+      if (where.value === 'job') return jobs.toLowerCase();
+      if (where.value === 'company') return (x.name || '').toLowerCase();
+      return [x.name, x.city, x.industry, x.domain, jobs, names].join(' ').toLowerCase();
+    }
+    const job = (x.job_title || '').toLowerCase();
+    const comp = companyName(d, x).toLowerCase();
     if (where.value === 'job') return job;
     if (where.value === 'company') return comp;
-    return [fullName(c), c.email, job, comp, c.city, d.F[c.company_id]?.city].join(' ').toLowerCase();
+    return [fullName(x), x.email, job, comp, x.city, d.F[x.company_id]?.city].join(' ').toLowerCase();
   };
   const selectedCount = () => [...checks.values()].filter((cb) => cb.checked).length;
   const updateInfo = () => {
@@ -864,16 +908,21 @@ function bulkAddDialog(d, board, stage) {
   const draw = () => {
     const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     checks.clear();
+    const pool = co ? d.companies : d.contacts;
+    const label = (x) => (co ? x.name : fullName(x));
     shown = words.length
-      ? d.contacts.filter((c) => !onBoard.has(c.id)).filter((c) => { const t = haystack(c); return words.every((w) => t.includes(w)); })
-          .sort((a, b) => fullName(a).localeCompare(fullName(b), 'de'))
+      ? pool.filter((x) => !onBoard.has(x.id)).filter((x) => { const t = haystack(x); return words.every((w) => t.includes(w)); })
+          .sort((a, b) => label(a).localeCompare(label(b), 'de'))
       : [];
-    list.replaceChildren(...shown.map((c) => {
+    list.replaceChildren(...shown.map((x) => {
       const cb = h('input', { type: 'checkbox', checked: true, onchange: updateInfo });
-      checks.set(c.id, cb);
-      return h('label', { class: 'pick' }, cb, h('span', { class: 'pick-main' }, h('strong', {}, fullName(c)), h('span', { class: 'muted small' }, [c.job_title, companyName(d, c)].filter(Boolean).join(' · '))));
+      checks.set(x.id, cb);
+      const meta = co
+        ? [plural(contactsOf(d, x.id).length, 'Kontakt', 'Kontakte'), x.city].filter(Boolean).join(' · ')
+        : [x.job_title, companyName(d, x)].filter(Boolean).join(' · ');
+      return h('label', { class: 'pick' }, cb, h('span', { class: 'pick-main' }, h('strong', {}, label(x)), h('span', { class: 'muted small' }, meta)));
     }));
-    if (words.length && !shown.length) list.append(h('p', { class: 'empty' }, 'Kein Kontakt passt (oder alle Treffer sind schon auf dem Board).'));
+    if (words.length && !shown.length) list.append(h('p', { class: 'empty' }, 'Nichts passt (oder alle Treffer sind schon auf dem Board).'));
     updateInfo();
   };
   q.addEventListener('input', draw);
@@ -881,7 +930,7 @@ function bulkAddDialog(d, board, stage) {
   updateInfo();
 
   const toggleAll = (on) => { for (const cb of checks.values()) cb.checked = on; updateInfo(); };
-  modal('Mehrere Kontakte zu „' + board.name + '“', h('div', { class: 'form' },
+  modal((co ? 'Mehrere Unternehmen' : 'Mehrere Kontakte') + ' zu „' + board.name + '“', h('div', { class: 'form' },
     field('Filter', q), field('Suchen', where),
     h('div', { class: 'inline' },
       h('button', { class: 'btn small', type: 'button', onclick: () => toggleAll(true) }, 'Alle wählen'),
@@ -896,11 +945,128 @@ function bulkAddDialog(d, board, stage) {
       const base = Date.now();
       for (let i = 0; i < ids.length; i += 100) {
         const part = ids.slice(i, i + 100);
-        await db.insert('cards', part.map((id, j) => ({ board_id: board.id, stage_id: stage.id, contact_id: id, position: base + i + j, stage_entered_at: now })));
-        await db.insert('events', part.map((id) => ({ contact_id: id, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${stage.name}“` })));
+        await db.insert('cards', part.map((id, j) => ({ board_id: board.id, stage_id: stage.id, [key]: id, position: base + i + j, stage_entered_at: now })));
+        await db.insert('events', part.map((id) => ({ [key]: id, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${stage.name}“` })));
       }
-      toast(ids.length + (ids.length === 1 ? ' Kontakt' : ' Kontakte') + ' hinzugefügt.');
+      toast(ids.length + ' hinzugefügt.');
       refresh();
     },
   }]);
+}
+
+// ---------- Unternehmen ----------
+
+async function viewCompanies() {
+  const d = await loadAll();
+  const companies = [...d.companies].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  const q = h('input', { type: 'search', class: 'search', placeholder: 'Suchen …', 'aria-label': 'Unternehmen suchen' });
+  const rows = companies.map((c) => {
+    const people = contactsOf(d, c.id);
+    const boards = d.cards.filter((x) => x.company_id === c.id).map((x) => d.B[x.board_id]?.name).filter(Boolean);
+    const row = h('a', { class: 'contact-row', href: '#/company/' + c.id },
+      h('span', { class: 'cr-name' }, c.name, c.city ? h('span', { class: 'muted small' }, ' · ' + c.city) : null),
+      h('span', { class: 'cr-company' }, plural(people.length, 'Kontakt', 'Kontakte')),
+      h('span', { class: 'cr-boards' }, boards.map((b) => h('span', { class: 'chip' }, b))),
+    );
+    row.dataset.search = [c.name, c.city, c.industry, c.domain, ...people.map((p) => fullName(p) + ' ' + (p.job_title || ''))].join(' ').toLowerCase();
+    return row;
+  });
+  const counter = h('span', { class: 'muted' }, companies.length + ' Unternehmen');
+  q.addEventListener('input', () => {
+    const t = q.value.trim().toLowerCase();
+    let n = 0;
+    for (const r of rows) { const hit = !t || r.dataset.search.includes(t); r.hidden = !hit; if (hit) n++; }
+    counter.textContent = n + ' Unternehmen';
+  });
+  return h('div', { class: 'page' },
+    h('header', { class: 'page-head' },
+      h('div', {}, h('p', { class: 'eyebrow' }, 'Firmen und Kanzleien'), h('h1', {}, 'Unternehmen')),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => companyDialog(d, null, (c) => { location.hash = '#/company/' + c.id; }) }, icon('plus'), 'Neues Unternehmen'),
+    ),
+    h('div', { class: 'toolbar' }, h('div', { class: 'search-wrap' }, icon('search', 16), q), counter),
+    companies.length ? h('div', { class: 'contact-list' }, rows) : h('p', { class: 'empty big' }, 'Noch keine Unternehmen.'),
+  );
+}
+
+function companyDialog(d, company, onSaved) {
+  const f = {
+    name: h('input', { value: company?.name || '', placeholder: 'Firma oder Kanzlei' }),
+    website: h('input', { type: 'url', value: company?.website || '', placeholder: 'https://…' }),
+    city: h('input', { value: company?.city || '' }),
+    industry: h('input', { value: company?.industry || '', placeholder: 'z. B. Steuerberatung' }),
+  };
+  const notes = h('textarea', { rows: 3, value: company?.notes || '' });
+  const body = h('div', { class: 'form grid2' },
+    h('div', { class: 'span2' }, field('Name', f.name)),
+    field('Website', f.website), field('Ort', f.city),
+    h('div', { class: 'span2' }, field('Branche', f.industry)),
+    h('div', { class: 'span2' }, field('Notizen', notes)),
+  );
+  const actions = [{
+    label: 'Speichern', primary: true,
+    onClick: async () => {
+      const row = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim() || null]));
+      row.notes = notes.value.trim() || null;
+      if (!row.name) { toast('Bitte einen Namen eingeben.', 'error'); return false; }
+      const saved = company ? await db.update('companies', company.id, row) : await db.insert('companies', row);
+      if (onSaved) await onSaved(saved);
+      else refresh();
+    },
+  }];
+  if (company) {
+    actions.unshift({
+      label: 'Löschen', danger: true,
+      onClick: async () => {
+        const ok = await confirmDialog('Unternehmen löschen?', `„${company.name}“ wird mit Verlauf und Board-Karten gelöscht. Die Kontakte bleiben erhalten, verlieren aber die Firmenzuordnung.`);
+        if (!ok) return false;
+        await db.remove('companies', company.id);
+        location.hash = '#/companies';
+      },
+    });
+  }
+  modal(company ? 'Unternehmen bearbeiten' : 'Neues Unternehmen', body, actions);
+}
+
+async function viewCompany(id) {
+  const d = await loadAll();
+  const c = d.F[id];
+  if (!c) return h('div', { class: 'empty' }, 'Unternehmen nicht gefunden. ', h('a', { href: '#/companies' }, 'Zu den Unternehmen'));
+  const events = await db.list('events', { eq: { company_id: id }, order: ['created_at', false] });
+  const memberships = d.cards.filter((x) => x.company_id === id && d.B[x.board_id]);
+  const people = contactsOf(d, id).sort((a, b) => fullName(a).localeCompare(fullName(b), 'de'));
+  const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
+  const info = (label, value, href) => value ? h('div', { class: 'info' }, h('dt', {}, label), h('dd', {}, href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, value) : value)) : null;
+
+  const profile = h('section', { class: 'panel' },
+    h('div', { class: 'panel-title row-between' }, h('h2', {}, 'Profil'), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Bearbeiten', onclick: () => companyDialog(d, c) }, icon('edit', 16))),
+    h('dl', { class: 'infos' }, info('Ort', c.city), info('Branche', c.industry),
+      info('Website', safeUrl(c.website) ? c.website.replace(/^https?:\/\//, '') : null, safeUrl(c.website))),
+    c.notes ? h('p', { class: 'notes' }, c.notes) : null,
+  );
+  const boardsPanel = h('section', { class: 'panel' },
+    h('h2', { class: 'panel-title' }, 'Boards'),
+    memberships.map((m) => membershipEl(d, m)),
+    addMembershipEl(d, { company_id: id }, memberships) || (memberships.length ? null : h('p', { class: 'empty' }, 'Lege zuerst ein Unternehmens-Board an.')),
+  );
+  const contactsPanel = h('section', { class: 'panel' },
+    h('div', { class: 'panel-title row-between' },
+      h('h2', {}, 'Kontakte', h('span', { class: 'count' }, people.length)),
+      h('button', { class: 'btn small', type: 'button', onclick: () => contactDialog(d, null, (ct) => { location.hash = '#/contact/' + ct.id; }, { company: c.name }) }, icon('plus', 14), 'Kontakt')),
+    people.length
+      ? h('ul', { class: 'people' }, people.map((p) => h('li', {}, h('a', { href: '#/contact/' + p.id },
+        h('strong', {}, fullName(p)), p.job_title ? h('span', { class: 'muted small' }, p.job_title) : null,
+        p.email ? h('span', { class: 'muted small' }, p.email) : null))))
+      : h('p', { class: 'empty' }, 'Noch keine Kontakte bei diesem Unternehmen.'),
+  );
+  return h('div', { class: 'page' },
+    h('header', { class: 'page-head' },
+      h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/companies' }, 'Unternehmen')), h('h1', {}, c.name),
+        h('p', { class: 'muted' }, [c.industry, c.city].filter(Boolean).join(' · '))),
+      h('div', { class: 'head-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => companyDialog(d, c) }, icon('edit', 16), 'Bearbeiten')),
+    ),
+    h('div', { class: 'contact-grid' },
+      h('div', { class: 'col side' }, boardsPanel, profile),
+      h('div', { class: 'col' }, contactsPanel, h('section', { class: 'panel' }, h('h2', { class: 'panel-title' }, 'Verlauf'), timelineEl({ company_id: id }, events))),
+    ),
+  );
 }

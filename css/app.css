@@ -312,3 +312,19 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--g
 .pick-list.bulk .pick input { accent-color: var(--gold); flex: none; }
 .pick-main { display: grid; min-width: 0; }
 .pick-main .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Unternehmen ---------- */
+.kind-chip { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 99px; background: var(--gold-soft); color: var(--gold); font-size: 11px; font-weight: 600; vertical-align: 3px; }
+.company-card .card-name { font-size: 15px; }
+.mini-contacts { list-style: none; margin: 0; padding: 2px 12px 6px; display: grid; gap: 1px; border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 6px; }
+.mini-contacts li { font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-contacts a { text-decoration: none; color: var(--ink); }
+.mini-contacts a:hover { color: var(--gold); }
+.mini-contacts .muted { font-size: 11.5px; }
+.mini-contacts .more { font-size: 11.5px; }
+.people { list-style: none; margin: 0; padding: 0; display: grid; }
+.people li { border-top: 1px solid var(--line); }
+.people li:first-child { border-top: 0; }
+.people a { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr; gap: 10px; align-items: baseline; padding: 8px 0; text-decoration: none; }
+.people a:hover strong { color: var(--gold); }
+@media (max-width: 760px) { .people a { grid-template-columns: 1fr; gap: 0; } }
