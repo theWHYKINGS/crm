@@ -306,3 +306,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--g
   .tl-del { opacity: 1; }
   .inline > input[type=date] { flex-basis: 140px; }
 }
+
+.pick-list.bulk { max-height: 340px; }
+.pick-list.bulk .pick { align-items: center; justify-content: flex-start; gap: 10px; cursor: pointer; }
+.pick-list.bulk .pick input { accent-color: var(--gold); flex: none; }
+.pick-main { display: grid; min-width: 0; }
+.pick-main .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

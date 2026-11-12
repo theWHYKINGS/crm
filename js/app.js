@@ -294,6 +294,7 @@ async function viewBoard(id) {
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => stagesDialog(board, stages, cards) }, 'Spalten'),
         h('button', { class: 'btn', type: 'button', onclick: () => boardDialog(board) }, icon('edit', 16), 'Board'),
+        h('button', { class: 'btn', type: 'button', onclick: () => bulkAddDialog(d, board, stages[0]) }, 'Mehrere hinzufügen'),
         h('button', { class: 'btn primary', type: 'button', onclick: () => addToBoardDialog(d, board, stages[0]) }, icon('plus'), 'Kontakt'),
       ),
     ),
@@ -827,6 +828,78 @@ function hubspotImportDialog() {
         n += (await db.upsert('contacts', rows, 'hubspot_id')).length;
       }
       toast(`${Object.keys(idMap).length} Firmen und ${n} Kontakte importiert.`);
+      refresh();
+    },
+  }]);
+}
+
+// ---------- Mehrere Kontakte auf einmal aufs Board ----------
+
+function bulkAddDialog(d, board, stage) {
+  if (!stage) { toast('Das Board braucht zuerst eine Spalte.', 'error'); return; }
+  const onBoard = new Set(d.cards.filter((c) => c.board_id === board.id).map((c) => c.contact_id));
+  const q = h('input', { type: 'search', placeholder: 'z. B. Steuerberater  (mehrere Wörter = alle müssen vorkommen)', 'aria-label': 'Filter' });
+  const where = h('select', { 'aria-label': 'Suchen in' },
+    h('option', { value: 'all' }, 'in allem (Name, Position, Firma, Ort, E-Mail)'),
+    h('option', { value: 'job' }, 'nur in der Position'),
+    h('option', { value: 'company' }, 'nur im Firmennamen'));
+  const list = h('div', { class: 'pick-list bulk' });
+  const info = h('p', { class: 'muted small' });
+  let shown = [];
+  const checks = new Map();
+
+  const haystack = (c) => {
+    const job = (c.job_title || '').toLowerCase();
+    const comp = companyName(d, c).toLowerCase();
+    if (where.value === 'job') return job;
+    if (where.value === 'company') return comp;
+    return [fullName(c), c.email, job, comp, c.city, d.F[c.company_id]?.city].join(' ').toLowerCase();
+  };
+  const selectedCount = () => [...checks.values()].filter((cb) => cb.checked).length;
+  const updateInfo = () => {
+    info.textContent = shown.length
+      ? `${shown.length} Treffer, ${selectedCount()} ausgewählt. Sie kommen in die Spalte „${stage.name}“.`
+      : 'Gib einen Suchbegriff ein.';
+  };
+  const draw = () => {
+    const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    checks.clear();
+    shown = words.length
+      ? d.contacts.filter((c) => !onBoard.has(c.id)).filter((c) => { const t = haystack(c); return words.every((w) => t.includes(w)); })
+          .sort((a, b) => fullName(a).localeCompare(fullName(b), 'de'))
+      : [];
+    list.replaceChildren(...shown.map((c) => {
+      const cb = h('input', { type: 'checkbox', checked: true, onchange: updateInfo });
+      checks.set(c.id, cb);
+      return h('label', { class: 'pick' }, cb, h('span', { class: 'pick-main' }, h('strong', {}, fullName(c)), h('span', { class: 'muted small' }, [c.job_title, companyName(d, c)].filter(Boolean).join(' · '))));
+    }));
+    if (words.length && !shown.length) list.append(h('p', { class: 'empty' }, 'Kein Kontakt passt (oder alle Treffer sind schon auf dem Board).'));
+    updateInfo();
+  };
+  q.addEventListener('input', draw);
+  where.addEventListener('change', draw);
+  updateInfo();
+
+  const toggleAll = (on) => { for (const cb of checks.values()) cb.checked = on; updateInfo(); };
+  modal('Mehrere Kontakte zu „' + board.name + '“', h('div', { class: 'form' },
+    field('Filter', q), field('Suchen', where),
+    h('div', { class: 'inline' },
+      h('button', { class: 'btn small', type: 'button', onclick: () => toggleAll(true) }, 'Alle wählen'),
+      h('button', { class: 'btn small', type: 'button', onclick: () => toggleAll(false) }, 'Keine wählen')),
+    info, list,
+  ), [{
+    label: 'Hinzufügen', primary: true,
+    onClick: async () => {
+      const ids = [...checks].filter(([, cb]) => cb.checked).map(([id]) => id);
+      if (!ids.length) { toast('Nichts ausgewählt.', 'error'); return false; }
+      const now = new Date().toISOString();
+      const base = Date.now();
+      for (let i = 0; i < ids.length; i += 100) {
+        const part = ids.slice(i, i + 100);
+        await db.insert('cards', part.map((id, j) => ({ board_id: board.id, stage_id: stage.id, contact_id: id, position: base + i + j, stage_entered_at: now })));
+        await db.insert('events', part.map((id) => ({ contact_id: id, board_id: board.id, kind: 'stage', body: `${board.name}: aufgenommen in „${stage.name}“` })));
+      }
+      toast(ids.length + (ids.length === 1 ? ' Kontakt' : ' Kontakte') + ' hinzugefügt.');
       refresh();
     },
   }]);
