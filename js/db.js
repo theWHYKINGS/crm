@@ -48,6 +48,9 @@ async function makeSupabase() {
       const rows = chk(await sb.from(table).insert(row).select());
       return Array.isArray(row) ? rows : rows[0];
     },
+    async upsert(table, rows, conflict) {
+      return chk(await sb.from(table).upsert(rows, { onConflict: conflict }).select());
+    },
     async update(table, id, patch) {
       return chk(await sb.from(table).update(patch).eq('id', id).select().single());
     },
@@ -121,6 +124,16 @@ async function makeLocal() {
       T(table).push(...rows);
       save();
       return clone(Array.isArray(row) ? rows : rows[0]);
+    },
+    async upsert(table, rows, conflict) {
+      const out = [];
+      for (const row of rows) {
+        const hit = T(table).find((x) => x[conflict] === row[conflict]);
+        if (hit) { Object.assign(hit, row); out.push(clone(hit)); }
+        else { const r = stamp(table, row); T(table).push(r); out.push(clone(r)); }
+      }
+      save();
+      return out;
     },
     async update(table, id, patch) {
       const r = T(table).find((x) => x.id === id);

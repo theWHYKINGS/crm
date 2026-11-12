@@ -427,6 +427,8 @@ async function viewContacts() {
     return row;
   });
   const counter = h('span', { class: 'muted' }, contacts.length + ' Kontakte');
+  const importBtn = h('button', { class: 'btn', type: 'button', hidden: true, onclick: () => hubspotImportDialog() }, 'Aus HubSpot importieren');
+  fetch('import/hubspot.json', { method: 'HEAD' }).then((r) => { if (r.ok) importBtn.hidden = false; }).catch(() => {});
   q.addEventListener('input', () => {
     const t = q.value.trim().toLowerCase();
     let n = 0;
@@ -436,7 +438,7 @@ async function viewContacts() {
   return h('div', { class: 'page' },
     h('header', { class: 'page-head' },
       h('div', {}, h('p', { class: 'eyebrow' }, 'Adressbuch'), h('h1', {}, 'Kontakte')),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => contactDialog(d, null, (c) => { location.hash = '#/contact/' + c.id; }) }, icon('plus'), 'Neuer Kontakt'),
+      h('div', { class: 'head-actions' }, importBtn, h('button', { class: 'btn primary', type: 'button', onclick: () => contactDialog(d, null, (c) => { location.hash = '#/contact/' + c.id; }) }, icon('plus'), 'Neuer Kontakt')),
     ),
     h('div', { class: 'toolbar' }, h('div', { class: 'search-wrap' }, icon('search', 16), q), counter),
     contacts.length ? h('div', { class: 'contact-list' }, rows) : h('p', { class: 'empty big' }, 'Noch keine Kontakte.'),
@@ -788,6 +790,31 @@ function researchDialog(d, c) {
           toast('Recherche fehlgeschlagen: ' + e.message, 'error');
         })
         .finally(() => { if (location.hash === '#/contact/' + c.id) refresh(); });
+    },
+  }]);
+}
+
+// ---------- HubSpot-Import (einmalig, nur lokal: import/hubspot.json ist nicht im Repo) ----------
+
+function hubspotImportDialog() {
+  const status = h('p', { class: 'muted' }, 'Liest import/hubspot.json und legt Firmen und Kontakte an. Bereits importierte Einträge werden aktualisiert, nicht doppelt angelegt.');
+  modal('Aus HubSpot importieren', status, [{
+    label: 'Import starten', primary: true,
+    onClick: async () => {
+      const data = await (await fetch('import/hubspot.json')).json();
+      const chunk = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+      const idMap = {};
+      for (const part of chunk(data.companies, 100)) {
+        const rows = await db.upsert('companies', part.map((c) => ({ hubspot_id: c.hs_object_id, name: c.name || c.domain || 'Ohne Namen', domain: c.domain, website: c.domain ? 'https://' + c.domain : null, city: c.city, industry: c.industry })), 'hubspot_id');
+        for (const r of rows) idMap[r.hubspot_id] = r.id;
+      }
+      let n = 0;
+      for (const part of chunk(data.contacts, 100)) {
+        const rows = part.map((c) => ({ hubspot_id: c.hs_object_id, first_name: c.first_name, last_name: c.last_name, email: c.email, phone: c.phone, job_title: c.job_title, city: c.city, company_id: idMap[c.company] || null }));
+        n += (await db.upsert('contacts', rows, 'hubspot_id')).length;
+      }
+      toast(`${Object.keys(idMap).length} Firmen und ${n} Kontakte importiert.`);
+      refresh();
     },
   }]);
 }
