@@ -21,12 +21,15 @@ const RESEARCH_TOPICS = [
 
 // ---------- Router ----------
 
+// Am Handy scrollt nur der Inhaltsbereich (.main), am Rechner die ganze Seite
+const scrollEl = () => (window.matchMedia('(max-width: 760px)').matches ? document.querySelector('.main') : null);
+
 let lastHash = '';
 async function route() {
   const hash = location.hash || '#/today';
   const [, view, id] = hash.split('/');
   const sameView = hash === lastHash;
-  const scroll = sameView ? { y: window.scrollY, x: document.querySelector('.kanban')?.scrollLeft || 0 } : null;
+  const scroll = sameView ? { y: scrollEl() ? scrollEl().scrollTop : window.scrollY, x: document.querySelector('.kanban')?.scrollLeft || 0 } : null;
   lastHash = hash;
 
   if (mode === 'supabase' && !(await db.user())) {
@@ -49,10 +52,10 @@ async function route() {
   const active = view === 'board' ? 'boards' : view === 'contact' ? 'contacts' : view === 'company' ? 'companies' : view || 'today';
   root.replaceChildren(shell(active, content));
   if (scroll) {
-    window.scrollTo(0, scroll.y);
+    (scrollEl() || window).scrollTo(0, scroll.y);
     const k = document.querySelector('.kanban');
     if (k) k.scrollLeft = scroll.x;
-  } else window.scrollTo(0, 0);
+  } else (scrollEl() || window).scrollTo(0, 0);
 }
 const refresh = () => route();
 window.addEventListener('hashchange', route);
@@ -73,7 +76,8 @@ function shell(active, content) {
           : h('button', { class: 'link', type: 'button', onclick: async () => { await db.signOut(); refresh(); } }, 'Abmelden'),
       ),
     ),
-    h('main', { class: 'main' }, h('header', { class: 'topbar' }, brandEl()), content),
+    h('header', { class: 'topbar' }, brandEl()),
+    h('main', { class: 'main' }, content),
   );
 }
 
