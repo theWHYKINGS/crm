@@ -30,6 +30,7 @@ create table if not exists contacts (
   linkedin_url  text,
   city          text,
   notes         text,
+  photo         text,
   hubspot_id    text unique,
   created_at    timestamptz not null default now()
 );

@@ -2,8 +2,7 @@ import { db, mode, TEMPLATES } from './db.js';
 import { STUCK_DAYS } from './config.js';
 import {
   h, icon, modal, confirmDialog, toast, field, todayISO, addDays, daysSince,
-  fmtDate, fmtDateTime, dueLabel, fullName, byId, renderMarkdown,
-} from './ui.js';
+  fmtDate, fmtDateTime, dueLabel, fullName, byId, renderMarkdown, avatar, resizePhoto } from './ui.js';
 
 const root = document.getElementById('app');
 
@@ -378,7 +377,9 @@ function cardEl(d, c, board, stages, idx) {
   const people = company ? contactsOf(d, company.id) : [];
   const el = h('article', { class: 'card' + (company ? ' company-card' : ''), draggable: 'true' },
     h('a', { class: 'card-link', href: company ? '#/company/' + company.id : '#/contact/' + contact.id },
-      h('div', { class: 'card-name' }, company ? company.name : fullName(contact)),
+      company
+        ? h('div', { class: 'card-name' }, company.name)
+        : h('div', { class: 'card-head' }, avatar(contact, 'md'), h('div', { class: 'card-name' }, fullName(contact))),
       company
         ? ((company.city || company.industry) ? h('div', { class: 'card-company' }, [company.city, company.industry].filter(Boolean).join(' · ')) : null)
         : (companyName(d, contact) ? h('div', { class: 'card-company' }, companyName(d, contact)) : null),
@@ -561,7 +562,7 @@ async function viewContacts() {
   const rows = contacts.map((c) => {
     const boards = d.cards.filter((x) => x.contact_id === c.id).map((x) => d.B[x.board_id]?.name).filter(Boolean);
     const row = h('a', { class: 'contact-row', href: '#/contact/' + c.id },
-      h('span', { class: 'cr-name' }, fullName(c), c.job_title ? h('span', { class: 'muted small' }, ' · ' + c.job_title) : null),
+      h('span', { class: 'cr-name' }, avatar(c, 'sm'), h('span', {}, fullName(c)), c.job_title ? h('span', { class: 'muted small' }, ' · ' + c.job_title) : null),
       h('span', { class: 'cr-company' }, companyName(d, c)),
       h('span', { class: 'cr-boards' }, boards.map((b) => h('span', { class: 'chip' }, b))),
     );
@@ -614,7 +615,26 @@ function contactDialog(d, contact, onSaved, preset) {
   const company = h('input', { value: d.F[contact?.company_id]?.name || preset?.company || '', list: 'company-list', placeholder: 'Firma oder Kanzlei' });
   const website = h('input', { type: 'url', value: d.F[contact?.company_id]?.website || d.F[d.companies.find((x) => x.name === preset?.company)?.id]?.website || '', placeholder: 'https://…' });
   const notes = h('textarea', { rows: 3, value: v('notes') });
+  let photo = contact?.photo || null;
+  const preview = h('span', { class: 'photo-preview' });
+  const fileIn = h('input', { type: 'file', accept: 'image/*' });
+  const removeBtn = h('button', { class: 'btn', type: 'button', onclick: () => { photo = null; drawPhoto(); } }, 'Entfernen');
+  const drawPhoto = () => {
+    preview.replaceChildren(avatar({ photo, first_name: f.first_name.value, last_name: f.last_name.value, email: f.email.value }, 'lg'));
+    removeBtn.hidden = !photo;
+  };
+  drawPhoto();
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files[0];
+    fileIn.value = '';
+    if (!file) return;
+    try { photo = await resizePhoto(file); drawPhoto(); } catch (e) { toast(e.message, 'error'); }
+  });
+  const photoRow = h('div', { class: 'photo-field span2' }, preview,
+    h('div', { class: 'photo-actions' },
+      h('button', { class: 'btn', type: 'button', onclick: () => fileIn.click() }, 'Foto wählen'), removeBtn, fileIn));
   const body = h('div', { class: 'form grid2' },
+    photoRow,
     field('Vorname', f.first_name), field('Nachname', f.last_name),
     field('Firma', h('div', {}, company, dl)), field('Website der Firma', website),
     field('Position', f.job_title), field('Ort', f.city),
@@ -627,6 +647,7 @@ function contactDialog(d, contact, onSaved, preset) {
     onClick: async () => {
       const row = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim() || null]));
       row.notes = notes.value.trim() || null;
+      row.photo = photo;
       if (!row.first_name && !row.last_name && !row.email) { toast('Bitte mindestens einen Namen oder eine E-Mail angeben.', 'error'); return false; }
       row.company_id = await resolveCompany(d, company.value);
       if (row.company_id && website.value.trim() && d.F[row.company_id]?.website !== website.value.trim()) {
@@ -709,10 +730,13 @@ async function viewContact(id) {
 
   return h('div', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {},
-        h('p', { class: 'eyebrow' }, h('a', { href: '#/contacts' }, 'Kontakte')),
-        h('h1', {}, fullName(c)),
-        h('p', { class: 'muted' }, [c.job_title, company?.name].filter(Boolean).join(' · ')),
+      h('div', { class: 'head-person' },
+        avatar(c, 'lg'),
+        h('div', {},
+          h('p', { class: 'eyebrow' }, h('a', { href: '#/contacts' }, 'Kontakte')),
+          h('h1', {}, fullName(c)),
+          h('p', { class: 'muted' }, [c.job_title, company?.name].filter(Boolean).join(' · ')),
+        ),
       ),
       h('div', { class: 'head-actions' },
         h('button', { class: 'btn', type: 'button', onclick: () => { contactTab = 'research'; researchDialog(d, c); } }, icon('spark', 16), 'Recherche'),

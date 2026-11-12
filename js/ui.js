@@ -163,3 +163,42 @@ export function renderMarkdown(md) {
   div.innerHTML = out.join('');
   return div;
 }
+
+// ---------- Kontaktfoto ----------
+
+const safePhoto = (p) => (/^data:image\/(jpeg|png|webp);base64,/.test(p || '') ? p : null);
+
+// Rundes Avatar: Foto, sonst Initialen.
+export function avatar(c, size = 'md') {
+  const photo = safePhoto(c?.photo);
+  const name = fullName(c);
+  const ini = [c?.first_name, c?.last_name].filter(Boolean).map((x) => x[0]).join('').slice(0, 2).toUpperCase() || name[0]?.toUpperCase() || '?';
+  const el = h('span', { class: 'avatar avatar-' + size, 'aria-hidden': 'true' });
+  if (photo) el.append(h('img', { src: photo, alt: '', draggable: 'false' }));
+  else el.textContent = ini;
+  return el;
+}
+
+// Datei -> quadratisch zugeschnittenes JPEG (Data-URL), damit die Datenbank klein bleibt.
+export async function resizePhoto(file, px = 192) {
+  if (!/^image\//.test(file.type)) throw new Error('Bitte eine Bilddatei wählen.');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('Das Bild konnte nicht gelesen werden.'));
+      i.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = px;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, px, px);
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, px, px);
+    return cv.toDataURL('image/jpeg', 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
