@@ -5,7 +5,7 @@
   python3 tools/research.py done ID ERGEBNIS.md [QUELLEN.json]
   python3 tools/research.py fail ID "Grund"
 
-Zugang: Datei .env mit SUPABASE_URL und SUPABASE_SERVICE_KEY (Service-Role-Key, bleibt lokal, nie ins Repo).
+Zugang: Datei .env mit SUPABASE_URL und SUPABASE_SERVICE_KEY (Secret key `sb_secret_…` oder altes service_role-JWT; bleibt lokal, nie ins Repo).
 Gesucht wird in: <Repo>/.env, <Haupt-Checkout>/.env, ~/.config/why-crm.env
 """
 import json, os, subprocess, sys, urllib.parse, urllib.request, urllib.error
@@ -52,9 +52,11 @@ def api(method, table, query='', body=None):
     global ENV
     ENV = ENV or load_env()
     url = ENV['SUPABASE_URL'].rstrip('/') + '/rest/v1/' + table + (('?' + query) if query else '')
-    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None, headers={
-        'apikey': ENV['SUPABASE_SERVICE_KEY'], 'Authorization': 'Bearer ' + ENV['SUPABASE_SERVICE_KEY'],
-        'Content-Type': 'application/json', 'Prefer': 'return=representation'})
+    key = ENV['SUPABASE_SERVICE_KEY']
+    headers = {'apikey': key, 'Content-Type': 'application/json', 'Prefer': 'return=representation'}
+    if key.startswith('eyJ'):  # altes JWT-Format (service_role); neue sb_secret_-Keys gehen nur über apikey
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             raw = r.read()

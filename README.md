@@ -43,7 +43,7 @@ Später hinzugekommene Änderungen liegen in `supabase/migrations/`. Jede Datei 
 
 Einmalige Einrichtung des Zugangs (die Datei bleibt lokal, `.env` ist in `.gitignore`):
 
-1. Supabase → Project Settings → API Keys → den **service_role**-Key (geheim) kopieren.
+1. Supabase → Project Settings → API Keys → unter „Secret keys" den Key `sb_secret_…` kopieren (alternativ der alte `service_role`-Key unter Legacy).
 2. Datei `.env` im Projektordner anlegen (alternativ `~/.config/why-crm.env`):
 
 ```
