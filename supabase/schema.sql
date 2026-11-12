@@ -14,6 +14,7 @@ create table if not exists companies (
   city        text,
   industry    text,
   notes       text,
+  logo        text,
   hubspot_id  text unique,
   created_at  timestamptz not null default now()
 );

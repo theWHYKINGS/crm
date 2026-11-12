@@ -202,3 +202,65 @@ export async function resizePhoto(file, px = 192) {
     URL.revokeObjectURL(url);
   }
 }
+
+// ---------- Firmenlogo ----------
+
+const safeImg = (p) => (/^data:image\/(jpeg|png|webp);base64,/.test(p || '') ? p : null);
+
+// Quadratische Kachel: Logo (eingepasst), sonst Initialen des Firmennamens.
+export function logoBox(co, size = 'md') {
+  const logo = safeImg(co?.logo);
+  const el = h('span', { class: 'logo-box logo-' + size, 'aria-hidden': 'true' });
+  if (logo) el.append(h('img', { src: logo, alt: '', draggable: 'false' }));
+  else {
+    el.classList.add('logo-empty');
+    el.textContent = String(co?.name || '?').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+  }
+  return el;
+}
+
+export function domainOf(url) {
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url);
+    return u.hostname.includes('.') ? u.hostname.replace(/^www\./, '') : null;
+  } catch { return null; }
+}
+
+// Bild (Datei oder Blob) -> max. px x px, Seitenverhältnis bleibt, PNG mit Transparenz.
+export async function resizeLogo(file, px = 128) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('Das Bild konnte nicht gelesen werden.'));
+      i.src = url;
+    });
+    const w = img.naturalWidth, hgt = img.naturalHeight;
+    if (!w || !hgt) throw new Error('Das Bild konnte nicht gelesen werden.');
+    const k = Math.min(px / w, px / hgt, 1);
+    const tw = Math.max(1, Math.round(w * k)), th = Math.max(1, Math.round(hgt * k));
+    const cv = document.createElement('canvas');
+    cv.width = tw; cv.height = th;
+    cv.getContext('2d').drawImage(img, 0, 0, tw, th);
+    return { dataUrl: cv.toDataURL('image/png'), srcWidth: w };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Logo einer Website holen (Dienst mit CORS). Wirft einen verständlichen Fehler, wenn nichts Brauchbares kommt.
+export async function fetchLogo(website) {
+  const dom = domainOf(website);
+  if (!dom) throw new Error('Bitte zuerst eine gültige Website eintragen.');
+  let blob;
+  try {
+    const r = await fetch('https://icon.horse/icon/' + encodeURIComponent(dom));
+    if (!r.ok) throw new Error();
+    blob = await r.blob();
+  } catch { throw new Error('Für ' + dom + ' wurde kein Logo gefunden. Bitte manuell hochladen.'); }
+  if (!/^image\//.test(blob.type) || blob.size < 200) throw new Error('Für ' + dom + ' wurde kein Logo gefunden. Bitte manuell hochladen.');
+  const out = await resizeLogo(blob);
+  if (out.srcWidth < 24) throw new Error('Das gefundene Logo ist zu klein. Bitte manuell hochladen.');
+  return out.dataUrl;
+}

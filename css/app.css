@@ -408,3 +408,17 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--g
 .photo-field { display: flex; align-items: center; gap: 14px; }
 .photo-field .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .photo-field input[type=file] { display: none; }
+
+/* Firmenlogo */
+.logo-box { flex: none; display: inline-grid; place-items: center; overflow: hidden; background: #fff; border: 1px solid var(--line); line-height: 1; }
+.logo-box img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.logo-box.logo-empty { background: var(--gold-soft); color: var(--gold); font-weight: 650; letter-spacing: .02em; border-color: transparent; }
+.logo-sm { width: 24px; height: 24px; border-radius: 6px; padding: 2px; font-size: 10px; }
+.logo-md { width: 36px; height: 36px; border-radius: 8px; padding: 4px; font-size: 13px; }
+.logo-lg { width: 72px; height: 72px; border-radius: 14px; padding: 8px; font-size: 24px; }
+.logo-empty.logo-sm, .logo-empty.logo-md, .logo-empty.logo-lg { padding: 0; }
+.company-card .card-head { align-items: center; }
+.logo-field { display: flex; align-items: center; gap: 14px; }
+.logo-field .photo-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.logo-field input[type=file] { display: none; }
+.company-card .mini-contacts { margin-top: 6px; }

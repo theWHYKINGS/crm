@@ -2,7 +2,7 @@ import { db, mode, TEMPLATES } from './db.js';
 import { STUCK_DAYS } from './config.js';
 import {
   h, icon, modal, confirmDialog, toast, field, todayISO, addDays, daysSince,
-  fmtDate, fmtDateTime, dueLabel, fullName, byId, renderMarkdown, avatar, resizePhoto } from './ui.js';
+  fmtDate, fmtDateTime, dueLabel, fullName, byId, renderMarkdown, avatar, resizePhoto, logoBox, fetchLogo, resizeLogo } from './ui.js';
 
 const root = document.getElementById('app');
 
@@ -378,7 +378,7 @@ function cardEl(d, c, board, stages, idx) {
   const el = h('article', { class: 'card' + (company ? ' company-card' : ''), draggable: 'true' },
     h('a', { class: 'card-link', href: company ? '#/company/' + company.id : '#/contact/' + contact.id },
       company
-        ? h('div', { class: 'card-name' }, company.name)
+        ? h('div', { class: 'card-head' }, logoBox(company, 'md'), h('div', { class: 'card-name' }, company.name))
         : h('div', { class: 'card-head' }, avatar(contact, 'md'), h('div', { class: 'card-name' }, fullName(contact))),
       company
         ? ((company.city || company.industry) ? h('div', { class: 'card-company' }, [company.city, company.industry].filter(Boolean).join(' · ')) : null)
@@ -562,7 +562,7 @@ async function viewContacts() {
   const rows = contacts.map((c) => {
     const boards = d.cards.filter((x) => x.contact_id === c.id).map((x) => d.B[x.board_id]?.name).filter(Boolean);
     const row = h('a', { class: 'contact-row', href: '#/contact/' + c.id },
-      h('span', { class: 'cr-name' }, avatar(c, 'sm'), h('span', {}, fullName(c)), c.job_title ? h('span', { class: 'muted small' }, ' · ' + c.job_title) : null),
+      h('span', { class: 'cr-name' }, avatar(c, 'sm'), h('span', {}, fullName(c), c.job_title ? h('span', { class: 'muted small' }, ' · ' + c.job_title) : null)),
       h('span', { class: 'cr-company' }, companyName(d, c)),
       h('span', { class: 'cr-boards' }, boards.map((b) => h('span', { class: 'chip' }, b))),
     );
@@ -1096,7 +1096,7 @@ async function viewCompanies() {
     const people = contactsOf(d, c.id);
     const boards = d.cards.filter((x) => x.company_id === c.id).map((x) => d.B[x.board_id]?.name).filter(Boolean);
     const row = h('a', { class: 'contact-row', href: '#/company/' + c.id },
-      h('span', { class: 'cr-name' }, c.name, c.city ? h('span', { class: 'muted small' }, ' · ' + c.city) : null),
+      h('span', { class: 'cr-name' }, logoBox(c, 'sm'), h('span', {}, c.name, c.city ? h('span', { class: 'muted small' }, ' · ' + c.city) : null)),
       h('span', { class: 'cr-company' }, plural(people.length, 'Kontakt', 'Kontakte')),
       h('span', { class: 'cr-boards' }, boards.map((b) => h('span', { class: 'chip' }, b))),
     );
@@ -1128,7 +1128,36 @@ function companyDialog(d, company, onSaved) {
     industry: h('input', { value: company?.industry || '', placeholder: 'z. B. Steuerberatung' }),
   };
   const notes = h('textarea', { rows: 3, value: company?.notes || '' });
+  let logo = company?.logo || null;
+  const preview = h('span', {});
+  const fileIn = h('input', { type: 'file', accept: 'image/*' });
+  const fetchBtn = h('button', { class: 'btn', type: 'button' }, 'Von Website holen');
+  const removeBtn = h('button', { class: 'btn', type: 'button', onclick: () => { logo = null; drawLogo(); } }, 'Entfernen');
+  const drawLogo = () => {
+    preview.replaceChildren(logoBox({ name: f.name.value, logo }, 'lg'));
+    removeBtn.hidden = !logo;
+  };
+  drawLogo();
+  f.name.addEventListener('input', () => { if (!logo) drawLogo(); });
+  fetchBtn.addEventListener('click', async () => {
+    fetchBtn.disabled = true;
+    try { logo = await fetchLogo(f.website.value); drawLogo(); } catch (e) { toast(e.message, 'error'); }
+    fetchBtn.disabled = false;
+  });
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files[0];
+    fileIn.value = '';
+    if (!file) return;
+    try {
+      if (!/^image\//.test(file.type)) throw new Error('Bitte eine Bilddatei wählen.');
+      logo = (await resizeLogo(file)).dataUrl; drawLogo();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+  const logoRow = h('div', { class: 'logo-field span2' }, preview,
+    h('div', { class: 'photo-actions' }, fetchBtn,
+      h('button', { class: 'btn', type: 'button', onclick: () => fileIn.click() }, 'Logo wählen'), removeBtn, fileIn));
   const body = h('div', { class: 'form grid2' },
+    logoRow,
     h('div', { class: 'span2' }, field('Name', f.name)),
     field('Website', f.website), field('Ort', f.city),
     h('div', { class: 'span2' }, field('Branche', f.industry)),
@@ -1139,6 +1168,7 @@ function companyDialog(d, company, onSaved) {
     onClick: async () => {
       const row = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim() || null]));
       row.notes = notes.value.trim() || null;
+      row.logo = logo;
       if (!row.name) { toast('Bitte einen Namen eingeben.', 'error'); return false; }
       const saved = company ? await db.update('companies', company.id, row) : await db.insert('companies', row);
       if (onSaved) await onSaved(saved);
@@ -1192,8 +1222,9 @@ async function viewCompany(id) {
   );
   return h('div', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/companies' }, 'Unternehmen')), h('h1', {}, c.name),
-        h('p', { class: 'muted' }, [c.industry, c.city].filter(Boolean).join(' · '))),
+      h('div', { class: 'head-person' }, logoBox(c, 'lg'),
+        h('div', {}, h('p', { class: 'eyebrow' }, h('a', { href: '#/companies' }, 'Unternehmen')), h('h1', {}, c.name),
+          h('p', { class: 'muted' }, [c.industry, c.city].filter(Boolean).join(' · ')))),
       h('div', { class: 'head-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => companyDialog(d, c) }, icon('edit', 16), 'Bearbeiten')),
     ),
     h('div', { class: 'contact-grid' },
