@@ -97,7 +97,7 @@ create table if not exists research (
   owner       uuid not null default auth.uid() references auth.users on delete cascade,
   contact_id  uuid not null references contacts on delete cascade,
   questions   jsonb not null default '{}'::jsonb,
-  status      text not null default 'running',   -- running | done | error
+  status      text not null default 'running',   -- queued | running | done | error
   result      text,
   sources     jsonb not null default '[]'::jsonb,
   error       text,

@@ -908,8 +908,8 @@ function transcriptsEl(c, transcripts) {
 function researchEl(d, c, research) {
   return h('div', {},
     h('div', { class: 'research-cta' },
-      h('p', { class: 'muted' }, 'Lass Claude im Web recherchieren. Du bestimmst, was du wissen willst.'),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => researchDialog(d, c) }, icon('spark', 16), 'Recherche starten'),
+      h('p', { class: 'muted' }, 'Du bestimmst, was du wissen willst. Claude Code arbeitet die vorgemerkten Recherchen ab (Befehl /recherche).'),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => researchDialog(d, c) }, icon('spark', 16), 'Recherche vormerken'),
     ),
     research.length
       ? research.map((r) => h('article', { class: 'research' },
@@ -921,6 +921,7 @@ function researchEl(d, c, research) {
           h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Recherche löschen', onclick: async () => { if (await confirmDialog('Recherche löschen?', 'Das Dossier wird endgültig gelöscht.')) { await db.remove('research', r.id); refresh(); } } }, icon('trash', 16)),
         ),
         r.questions?.custom ? h('p', { class: 'muted small' }, 'Frage: ' + r.questions.custom) : null,
+        r.status === 'queued' ? h('p', { class: 'running' }, h('span', { class: 'spinner' }), 'Vorgemerkt: in Claude Code „/recherche“ ausführen.') : null,
         r.status === 'running' ? h('p', { class: 'running' }, h('span', { class: 'spinner' }), 'Recherche läuft …') : null,
         r.status === 'error' ? h('p', { class: 'form-error' }, 'Fehler: ' + (r.error || 'unbekannt')) : null,
         r.result ? renderMarkdown(r.result) : null,
@@ -937,39 +938,20 @@ function researchDialog(d, c) {
   });
   const custom = h('textarea', { rows: 3, placeholder: 'Eigene Frage, z. B. „Gibt es Hinweise auf Nachfolgeplanung in der Kanzlei?“' });
   const company = d.F[c.company_id];
-  modal('Recherche zu ' + fullName(c), h('div', { class: 'form' },
+  modal('Recherche vormerken: ' + fullName(c), h('div', { class: 'form' },
     h('p', { class: 'muted small' }, 'Gesucht wird mit: ' + [fullName(c), c.job_title, company?.name, company?.website, c.city || company?.city].filter(Boolean).join(' · ')),
     boxes.map((b) => b.el),
     field('Was willst du sonst noch wissen?', custom),
   ), [{
-    label: 'Recherche starten', primary: true,
+    label: 'Recherche vormerken', primary: true,
     onClick: async () => {
       const topics = boxes.filter((b) => b.cb.checked).map((b) => b.cb.value);
       if (!topics.length && !custom.value.trim()) { toast('Bitte mindestens ein Thema wählen.', 'error'); return false; }
-      const r = await db.insert('research', { contact_id: c.id, questions: { topics, custom: custom.value.trim() || null }, status: 'running' });
-      await db.insert('events', { contact_id: c.id, kind: 'research', body: 'Recherche gestartet' });
+      await db.insert('research', { contact_id: c.id, questions: { topics, custom: custom.value.trim() || null }, status: 'queued' });
+      await db.insert('events', { contact_id: c.id, kind: 'research', body: 'Recherche vorgemerkt' });
       contactTab = 'research';
       refresh();
-      toast('Recherche läuft, das dauert etwa eine Minute.');
-      const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-      db.invoke('research', { research_id: r.id })
-        .then(async () => {
-          for (let i = 0; i < 90; i++) {
-            await sleep(i === 0 ? 1500 : 4000);
-            const row = await db.get('research', r.id);
-            if (row && row.status !== 'running') {
-              if (row.status === 'error') toast('Recherche fehlgeschlagen: ' + (row.error || 'unbekannt'), 'error');
-              else toast('Recherche fertig.');
-              return;
-            }
-          }
-          throw new Error('Zeitüberschreitung (mehr als 6 Minuten)');
-        })
-        .catch(async (e) => {
-          await db.update('research', r.id, { status: 'error', error: e.message }).catch(() => {});
-          toast('Recherche fehlgeschlagen: ' + e.message, 'error');
-        })
-        .finally(() => { if (location.hash === '#/contact/' + c.id) refresh(); });
+      toast('Vorgemerkt. In Claude Code „/recherche“ ausführen.');
     },
   }]);
 }
